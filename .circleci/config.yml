@@ -1,0 +1,143 @@
+image_config: &image_config
+  DOCKER_REPOSITORY: ui-faster-nextjs
+
+version: 2.1
+workflows:
+  Build and Deploy to Staging Version:
+    jobs:
+    - deploy_to_trial_version:
+        filters:
+          branches:
+            only: trial
+
+    - confirm_deploy_staging_version:
+        filters:
+          branches:
+            only: staging
+        type: approval
+        
+    - deploy_to_staging_version:
+        filters:
+          branches:
+            only: staging
+        requires:
+          - confirm_deploy_staging_version
+
+    - confirm_deploy_to_production:
+        filters:
+          branches:
+            only: master
+        type: approval
+        
+    - deploy_to_production:
+        filters:
+          branches:
+            only: master
+        requires:
+          - confirm_deploy_to_production
+      
+jobs:
+  deploy_to_trial_version:
+    machine: true
+    environment:
+      <<: *image_config
+    steps:
+      - checkout
+      - run:
+          name: Signin to Docker Registy
+          command: docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - run:
+          name: Build Docker Image
+          command: docker build -t $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD) .
+      - run:
+          name: Push to Docker HUB
+          command: docker push $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD)
+      - run:
+          name: Pull to Server Trial
+          command: |
+            SSH_USER=$SSH_USER_SERVER_TRIAL
+            SSH_HOST=$SSH_HOST_SERVER_TRIAL
+            ssh $SSH_USER@$SSH_HOST " docker image pull $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD)"
+      - run:
+          name: Deploying to Server Trial
+          command: |
+            SSH_USER=$SSH_USER_SERVER_TRIAL
+            SSH_HOST=$SSH_HOST_SERVER_TRIAL
+            ssh $SSH_USER@$SSH_HOST "
+              CURRENT_IMAGE=\$(docker inspect --format='{{.Config.Image}}' FASTER-TRIAL-NEXTJS | cut -d '/' -f 2 | tr -d '[:space:]') &&
+              cd /docker/compose_files/faster/trial/ &&
+              IMAGE=$DOCKER_USERNAME/$CURRENT_IMAGE docker compose -f docker-compose-faster-trial-nextjs.yaml -p 'faster_trial' down &&
+              IMAGE=$DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD) docker compose -f docker-compose-faster-trial-nextjs.yaml -p 'faster_trial' up -d &&
+              IMAGE_NEED_TO_REMOVE=$DOCKER_USERNAME/\$CURRENT_IMAGE &&
+              docker image rm \$IMAGE_NEED_TO_REMOVE
+            "
+
+  deploy_to_staging_version:
+    machine: true
+    environment:
+      <<: *image_config
+    steps:
+      - checkout
+      - run:
+          name: Signin to Docker Registy
+          command: docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - run:
+          name: Build Docker Image
+          command: docker build -t $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD) .
+      - run:
+          name: Push to Docker HUB
+          command: docker push $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD)
+      - run:
+          name: Pull to Server Staging
+          command: |
+            SSH_USER=$SSH_USER_SERVER_STAGING
+            SSH_HOST=$SSH_HOST_SERVER_STAGING
+            ssh $SSH_USER@$SSH_HOST " docker image pull $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD)"
+      - run:
+          name: Deploying to Server Staging
+          command: |
+            SSH_USER=$SSH_USER_SERVER_STAGING
+            SSH_HOST=$SSH_HOST_SERVER_STAGING
+            ssh $SSH_USER@$SSH_HOST "
+              CURRENT_IMAGE=\$(docker inspect --format='{{.Config.Image}}' FASTER-STAGING-NEXTJS | cut -d '/' -f 2 | tr -d '[:space:]') &&
+              cd /docker/compose_files/faster/staging/ &&
+              IMAGE=$DOCKER_USERNAME/$CURRENT_IMAGE docker compose -f docker-compose-faster-staging-nextjs.yaml -p 'faster_staging' down &&
+              IMAGE=$DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD) docker compose -f docker-compose-faster-staging-nextjs.yaml -p 'faster_staging' up -d &&
+              IMAGE_NEED_TO_REMOVE=$DOCKER_USERNAME/\$CURRENT_IMAGE &&
+              docker image rm \$IMAGE_NEED_TO_REMOVE
+            "
+
+  deploy_to_production:
+    machine: true
+    environment:
+      <<: *image_config
+    steps:
+      - checkout
+      - run:
+          name: Signin to Docker Registy
+          command: docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - run:
+          name: Build Docker Image
+          command: docker build -t $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD) .
+      - run:
+          name: Push To Docker HUB
+          command: docker push $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD)
+      - run:
+          name: Pull to Server Production
+          command: |
+            SSH_USER=$SSH_USER_SERVER_PRODUCTION
+            SSH_HOST=$SSH_HOST_SERVER_PRODUCTION
+            ssh $SSH_USER@$SSH_HOST " docker image pull $DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD)"
+      - run:
+          name: Deploying to server production
+          command: |
+            SSH_USER=$SSH_USER_SERVER_PRODUCTION
+            SSH_HOST=$SSH_HOST_SERVER_PRODUCTION
+            ssh $SSH_USER@$SSH_HOST "
+              CURRENT_IMAGE=\$(docker inspect --format='{{.Config.Image}}' FASTER-PRODUCTION-NEXTJS | cut -d '/' -f 2 | tr -d '[:space:]') &&
+              cd /docker/compose_files/faster/production/ &&
+              IMAGE=$DOCKER_USERNAME/$CURRENT_IMAGE docker compose -f docker-compose-faster-production-nextjs.yaml -p 'faster_production' down &&
+              IMAGE=$DOCKER_USERNAME/$DOCKER_REPOSITORY:$CIRCLE_BRANCH-$(git rev-parse --short HEAD) docker compose -f docker-compose-faster-production-nextjs.yaml -p 'faster_production' up -d &&
+              IMAGE_NEED_TO_REMOVE=$DOCKER_USERNAME/\$CURRENT_IMAGE &&
+              docker image rm \$IMAGE_NEED_TO_REMOVE
+            "
