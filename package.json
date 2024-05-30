@@ -2,9 +2,9 @@
   "name": "backend",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 2023",
+    "dev": "next dev -p 2024",
     "build": "next build",
-    "start": "next start -p 2023",
+    "start": "next start -p 2024",
     "lint": "next lint"
   },
   "dependencies": {
